@@ -90,6 +90,9 @@ class NoneUser(object):
 
 class AbstractUser(NoneUser):
 
+    SUFFIX = getattr(settings, 'LDAP_WRITTEN_BY_DJANGO_USER_SUFFIX', '')
+    SUFFIX_SEP = SUFFIX[0] if (len(SUFFIX) > 0) and not SUFFIX[0].isalpha() else None
+
     @classmethod
     def can_used(cls):
         return (getattr(settings, 'LDAP_WRITTEN_BY_DJANGO', False) is True) and hasattr(settings, 'LDAP_SERVERS') and hasattr(settings, 'LDAP_BIND_ADMIN') and hasattr(settings, 'LDAP_BIND_ADMIN_PASS')
@@ -197,23 +200,26 @@ class AbstractUser(NoneUser):
                         old_instance = instance
                     instance._ldap_dn, instance._ldap_fields = ad_ldap_user.get_user_dn(getattr(old_instance, username_field))
                     instance._ldap_password = instance._password
-                    if instance._ldap_dn is not None:
-                        suffix = getattr(settings, 'LDAP_WRITTEN_BY_DJANGO_USER_SUFFIX', '')
-                        if (len(suffix) > 0) and not suffix[0].isalpha() and (suffix[0] in instance.username) and (len(instance.username.split(suffix[0])[-1]) > 0):
-                            suffix = suffix[0] + instance.username.split(suffix[0])[-1]
-                            instance.username = instance.username[:-1 * len(suffix)]
-                        elif not instance.username.endswith(suffix):
-                            instance.username = instance.username[:-1 * len(suffix)]
-                        instance.username = instance._ldap_fields['username']
-                        username_suffix = ''
-                        while (CurrentUser._default_manager.filter(username="%s%s%s" % (instance.username, username_suffix, suffix)).exclude(pk=instance.pk).count() > 0):
-                            if username_suffix == '':
-                                username_suffix = 0
-                            username_suffix += 1
-                        instance.username += str(username_suffix) + suffix
-                        logger.debug("**** before_save_user(%s) -> %s" % (instance.username, instance._ldap_dn))
+                    old_username = instance.username
+                    instance.username = instance._ldap_fields['username'].strip() if 'username' in instance._ldap_fields else old_username
+                    suffix = cls.SUFFIX
+                    if cls.SUFFIX_SEP and (instance.username.count(cls.SUFFIX_SEP) > 0):
+                        usernames = instance.username.split(cls.SUFFIX_SEP)
+                        suffix = cls.SUFFIX_SEP + usernames[1]
+                        instance.username = usernames[0]
+                    elif (len(cls.SUFFIX) > 0) and not instance.username.endswith(cls.SUFFIX):
+                        instance.username = instance.username[:-1 * len(cls.SUFFIX)]
+                    username_suffix = ''
+                    while (CurrentUser._default_manager.filter(username="%s%s%s" % (instance.username, username_suffix, suffix)).exclude(pk=instance.pk).count() > 0):
+                        if username_suffix == '':
+                            username_suffix = 0
+                        username_suffix += 1
+                    instance.username += str(username_suffix) + suffix
+                    logger.debug("**** before_save_user(%s=>%s) -> %s" % (old_username, instance.username, instance._ldap_dn))
             except AttributeError as err:
                 logger.exception("**** before_save_user(%s) - error = %s" % (instance.username, err))
+        else:
+            logger.debug("**** before_save_user(%s) NO" % (instance.username,))
 
     @classmethod
     def disabled_user(cls, instance):
