@@ -21,6 +21,7 @@ along with Lucterios.  If not, see <http://www.gnu.org/licenses/>.
 """
 import ssl
 from six import string_types
+from unicodedata import normalize, category
 import logging
 
 from ldap3 import Tls, Server, ServerPool, Connection
@@ -209,6 +210,9 @@ class AbstractUser(NoneUser):
                         instance.username = usernames[0]
                     elif (len(cls.SUFFIX) > 0) and not instance.username.endswith(cls.SUFFIX):
                         instance.username = instance.username[:-1 * len(cls.SUFFIX)]
+                    if (instance.pk is not None) and ((instance.username.strip() == '') or instance.username.isnumeric()):
+                        instance.username = instance.first_name.lower() + instance.last_name.upper()[0]
+                        instance.username = ''.join(letter for letter in normalize('NFD', instance.username) if category(letter) != 'Mn')
                     username_suffix = ''
                     while (CurrentUser._default_manager.filter(username="%s%s%s" % (instance.username, username_suffix, suffix)).exclude(pk=instance.pk).count() > 0):
                         if username_suffix == '':
